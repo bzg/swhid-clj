@@ -1,0 +1,172 @@
+#+title: swhid-clj
+#+options: toc:nil num:nil
+
+A Clojure library to manipulate /Software Hash Identifiers/ (SWHIDs, ISO
+18670, spec v1.2).
+
+Parse, validate, build and render core or qualified identifiers,
+compute =cnt= / =dir= SWHIDs from local files and directories, and =rev= /
+=rel= / =snp= SWHIDs from a local Git repository.
+
+It runs on the JVM (Clojure >= 1.11) and on [[https://babashka.org][Babashka]].
+
+* Install
+
+#+begin_src clojure
+{:deps {io.github.bzg/swhid {:mvn/version "0.1.0"}}}
+#+end_src
+
+* SWHIDs as data
+
+A SWHID is a plain map:
+
+#+begin_src clojure
+{:type :content                     ; :directory :revision :release :snapshot
+ :hash "94a9ed024d3859793618152ea559a168bbcbb5e2"
+ :qualifiers {:origin "https://example.org/repo"  ; present only when
+              :lines [9 15]}}                     ; non-empty
+#+end_src
+
+=pr= prints it as a =#swh/id= tagged literal:
+
+#+begin_src clojure
+(pr-str (swhid/parse "swh:1:cnt:94a9…;lines=9-15"))
+;; => "#swh/id \"swh:1:cnt:94a9…;lines=9-15\""
+#+end_src
+
+The literal is read in code once =swhid.core= is loaded.
+
+* Usage
+
+** Parse, build, render
+
+#+begin_src clojure
+(require '[swhid.core :as swhid] '[swhid.qualifier :as q])
+
+(def id "swh:1:cnt:94a9ed024d3859793618152ea559a168bbcbb5e2;lines=9-15")
+
+(swhid/valid? id)                ; => true
+(def m (swhid/parse id))         ; throws ex-info on an invalid SWHID
+(swhid/content? m)               ; => true
+(q/line-range m)                 ; => [9 15]
+(swhid/swhid->string (swhid/core-swhid m))
+;; => "swh:1:cnt:94a9ed024d3859793618152ea559a168bbcbb5e2"
+
+(swhid/make :directory "d198bc9d7a6bcf6db04f476d29314f157507d505")
+#+end_src
+
+** Qualifiers
+
+Build qualified SWHIDs by composition:
+
+#+begin_src clojure
+(-> #swh/id "swh:1:cnt:4d99d2d18326621ccdd70f5ea66c2e2ac236ad8b"
+    (swhid/with-origin "https://gitorious.org/ocamlp3l/ocamlp3l_cvs.git")
+    (swhid/with-visit "swh:1:snp:d7f1b9eb7ccb596c2622c4780febaa02549830f9")
+    (swhid/with-anchor (swhid/make :revision "2db189928c94d62a3b4757b3eec68f0a4d4113f0"))
+    (swhid/with-path "/Examples/SimpleFarm/simplefarm.ml")
+    (swhid/with-lines 9 15)
+    swhid/swhid->string)
+;; => "swh:1:cnt:4d99…;origin=https://gitorious.org/…;visit=swh:1:snp:d7f1…
+;;     ;anchor=swh:1:rev:2db1…;path=/Examples/SimpleFarm/simplefarm.ml;lines=9-15"
+#+end_src
+
+Qualifiers render in the spec's canonical order and are escaped as
+=swh.model= does (=origin=: =%=, =;= and whitespace; =path=: all but ASCII
+letters, digits and =_.-~/=).
+
+** Hash local files and directories
+
+Hashes are Git-compatible: a =cnt= SWHID is the Git blob hash, a =dir=
+SWHID the Git tree hash.
+
+#+begin_src clojure
+(require '[swhid.hash :as h])
+
+(h/content-swhid "hello world\n")   ; string (UTF-8) or byte array
+;; => #swh/id "swh:1:cnt:3b18e512dba79e4c8300dd08aeb37f8e728b8dad"
+(h/path-swhid "src")                ; file => :content, directory => :directory
+(h/path-swhid "." {:exclude #(= ".git" (.getName %))})
+(h/tree-swhids "src")               ; every node in one pass, root under "."
+;; => {"." #swh/id "swh:1:dir:…", "swhid" #swh/id "swh:1:dir:…",
+;;     "swhid/core.clj" #swh/id "swh:1:cnt:…", …}
+
+;; from known leaves (Git modes and blob or commit hashes)
+(h/tree-swhids-from-entries
+ {"src/a.clj" {:mode "100644" :hash "3b18e512dba79e4c8300dd08aeb37f8e728b8dad"}
+  "lib"       {:mode "160000" :hash "497b00c6b08cef93c8eef6797eb159653f2cb92b"}})
+
+;; a snapshot from its branches
+(h/snapshot-swhid
+ {"HEAD"            {:target-type :alias :target "refs/heads/main"}
+  "refs/heads/main" {:target-type :revision
+                     :target "7911b70479ea613a2fa7804ff47fe2a04b717286"}})
+#+end_src
+
+** Git repositories
+
+These functions shell out to the =git= binary and match what =swh
+identify= computes for a local repository.
+
+#+begin_src clojure
+(require '[swhid.git :as g])
+
+(g/revision-swhid ".")            ; HEAD, or any rev: (g/revision-swhid "." "main")
+(g/release-swhid "." "v1.0")      ; an annotated tag
+(g/snapshot-swhid ".")            ; all refs, HEAD as an alias
+(g/blob-swhid "." "src/a.clj")    ; a file as `git add` would store it
+(g/worktree-swhids ".")           ; the tracked working tree, like tree-swhids
+#+end_src
+
+=worktree-swhids= gives the archive's view of the working tree: files in
+the index only (no untracked or ignored file, no =.git=), modified files
+hashed as =git add= would store them (clean filters, =core.autocrlf=,
+=core.fileMode=, =core.symlinks=), and submodules as =:revision= entries.
+
+* API
+
+| Namespace       | Functions                                               |
+|-----------------+---------------------------------------------------------|
+| =swhid.core=      | =parse= =valid?= =make= =swhid->string= =core-swhid= =edn-readers=  |
+|                 | =object-type= =object-id= =content?= =directory?= =revision?=     |
+|                 | =release?= =snapshot?=                                      |
+|                 | =with-qualifier= =without-qualifier= =with-origin= =with-visit= |
+|                 | =with-anchor= =with-path= =with-lines= =with-bytes=             |
+| =swhid.qualifier= | =qualifiers= =origin= =visit= =anchor= =path= =line-range=          |
+|                 | =byte-range=                                              |
+| =swhid.hash=      | =content-swhid= =path-swhid= =tree-swhids=                    |
+|                 | =tree-swhids-from-entries= =snapshot-swhid=                 |
+| =swhid.git=       | =revision-swhid= =release-swhid= =snapshot-swhid= =blob-swhid=  |
+|                 | =worktree-swhids=                                         |
+
+* Notes
+
+- Hashing is validated on GNU/Linux. On Windows (no POSIX execute bit)
+  and macOS, hashes may differ from Git's for the affected files.
+- On the JVM, file names are decoded with the locale's encoding: run
+  with a UTF-8 locale (e.g. =LC_ALL=C.UTF-8=), otherwise hashing a tree
+  with non-ASCII names throws. A name that is not valid UTF-8 also
+  throws, rather than being mis-hashed.
+- =path-swhid= and =tree-swhids= hash what is on disk.
+- SWHIDs are SHA-1 based: =swhid.git= refuses SHA-256 repositories.
+
+* Development
+
+#+begin_src shell
+bb test                     # tests under Babashka
+clojure -X:test             # tests on the JVM
+clojure -T:build jar        # build target/swhid-<version>.jar
+clojure -T:build deploy     # needs CLOJARS_USERNAME and CLOJARS_PASSWORD
+#+end_src
+
+* References
+
+- Specification: https://www.swhid.org/specification/v1.2/
+- Reference implementation (Python): [[https://gitlab.softwareheritage.org/swh/devel/swh-model][swh.model]]
+- Rust implementation: https://github.com/swhid/swhid-rs
+
+* License
+
+Copyright © 2026 Bastien Guerry
+
+The code is distributed under the Eclipse Public License 2.0.
