@@ -26,7 +26,7 @@
 ;; Canonical ordering: context qualifiers first, then fragment qualifiers.
 (def ^:private qualifier-order [:origin :visit :anchor :path :lines :bytes])
 
-(def ^:private known-keys (set (map name qualifier-order)))
+(def ^:private known-keys (set qualifier-order))
 
 (defn- hex-digit? [c]
   (or (<= (int \0) (int c) (int \9))
@@ -108,7 +108,7 @@
 (defn- range-start-ok?
   "Lines are numbered from 1, bytes from 0."
   [k from]
-  (if (#{"lines" :lines} k) (pos-int? from) (nat-int? from)))
+  (if (= :lines k) (pos-int? from) (nat-int? from)))
 
 (defn- check-range!
   "A range is [from to?] with to >= from, from >= 1 for lines, >= 0 for bytes."
@@ -157,14 +157,13 @@
 
 (defn- parse-value [k v]
   (case k
-    "origin" (check-origin! (percent-decode v))
-    "path" (check-path! (percent-decode v))
-    ("visit" "anchor") (if (core-swhid? v)
-                         v
-                         (throw (ex-info "Qualifier must be a core SWHID"
-                                         {:key k :value v})))
-    ("lines" "bytes") (parse-range k v)
-    (throw (ex-info "Unknown qualifier" {:key k}))))
+    :origin (check-origin! (percent-decode v))
+    :path (check-path! (percent-decode v))
+    (:visit :anchor) (if (core-swhid? v)
+                       v
+                       (throw (ex-info "Qualifier must be a core SWHID"
+                                       {:key k :value v})))
+    (:lines :bytes) (parse-range k v)))
 
 (defn ^:no-doc parse
   "Parse the qualifier substring (everything after the first `;`) into a
@@ -181,12 +180,12 @@
      (let [eq (str/index-of seg "=")]
        (when-not eq
          (throw (ex-info "Qualifier missing '='" {:segment seg})))
-       (let [k (subs seg 0 eq)
+       (let [k (keyword (subs seg 0 eq))
              v (subs seg (inc eq))]
          (cond
            (not (known-keys k)) acc
-           (contains? acc (keyword k)) (throw (ex-info "Duplicate qualifier" {:key k}))
-           :else (assoc acc (keyword k) (parse-value k v))))))
+           (contains? acc k) (throw (ex-info "Duplicate qualifier" {:key k}))
+           :else (assoc acc k (parse-value k v))))))
    {}
    (str/split s #";" -1)))
 
