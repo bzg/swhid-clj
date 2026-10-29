@@ -21,7 +21,7 @@
                 :scm {:url "https://github.com/bzg/swhid-clj"
                       :connection "scm:git:git://github.com/bzg/swhid-clj.git"
                       :developerConnection "scm:git:ssh://git@github.com/bzg/swhid-clj.git"
-                      :tag (str "v" version)}
+                      :tag version}
                 :pom-data [[:description "Manipulate and compute SWHIDs (ISO 18670)"]
                            [:url "https://github.com/bzg/swhid-clj"]
                            [:licenses
