@@ -167,7 +167,8 @@
              (str/trim (git repo-path "hash-object" "--path" path "--" path))))
 
 (defn- git-z
-  "Records of a NUL-separated git output (a record may be a blank path)."
+  "Records of a NUL-separated git output; none when it says nothing
+  (split would make one empty record of it)."
   [repo & args]
   (remove empty? (str/split (apply git repo args) #"\u0000")))
 
@@ -214,14 +215,12 @@
   or of a kind Git leaves out."
   [^java.io.File root path index-mode]
   (let [f (io/file root path)]
-    (cond
-      (java.nio.file.Files/isSymbolicLink (.toPath f))
-      {:kind :symlink :hash (:hash (h/path-swhid f))}
-      (.isFile f)
-      {:kind :file :executable? (h/executable? f)}
-      (.isDirectory f)
-      (cond-> {:kind :directory}
-        (= "160000" index-mode) (assoc :hash (rev-parse f "HEAD"))))))
+    (case (h/file-kind f)
+      :symlink {:kind :symlink :hash (:hash (h/path-swhid f))}
+      :file {:kind :file :executable? (h/executable? f)}
+      :directory (cond-> {:kind :directory}
+                   (= "160000" index-mode) (assoc :hash (rev-parse f "HEAD")))
+      nil)))
 
 (defn- worktree-entry
   "The entry `git add` would record for a path whose index entry is

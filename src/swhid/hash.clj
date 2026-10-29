@@ -68,7 +68,10 @@
     (aset-byte out n 47)
     out))
 
-(defn- compare-unsigned [^bytes a ^bytes b]
+(defn- compare-unsigned
+  "Not java.util.Arrays/compareUnsigned: Babashka has no reflection
+  entry for it."
+  [^bytes a ^bytes b]
   (let [la (alength a) lb (alength b) n (min la lb)]
     (loop [i 0]
       (if (< i n)
@@ -150,7 +153,7 @@
                            swhids)))
            children))])
 
-(defn- file-kind
+(defn ^:no-doc file-kind
   "Kind of `f` as Git sees it, nil for those Git leaves out of its trees
   (sockets, fifos, devices)."
   [^File f]

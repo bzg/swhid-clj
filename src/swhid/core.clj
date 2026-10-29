@@ -54,9 +54,9 @@
         m (re-matches core-re core-str)]
     (when-not m
       (throw (ex-info "Invalid core SWHID" {:input s :core core-str})))
-    (let [[_ tag hash] m]
-      (swhid-map (tag->type tag) hash
-                 (some->> qual-str q/parse (q/effective (tag->type tag)))))))
+    (let [[_ tag hash] m
+          type (tag->type tag)]
+      (swhid-map type hash (some->> qual-str q/parse (q/effective type))))))
 
 (defn valid?
   "Return true if `s` is a syntactically valid SWHID string."

@@ -3,8 +3,7 @@
  {test
   {:doc "Run the test suite under Babashka"
    :requires ([clojure.test :as t])
-   :task (do
-           (require 'swhid.core-test 'swhid.qualifier-test 'swhid.hash-test 'swhid.git-test)
-           (let [{:keys [fail error]}
-                 (t/run-tests 'swhid.core-test 'swhid.qualifier-test 'swhid.hash-test 'swhid.git-test)]
+   :task (let [nss '[swhid.core-test swhid.qualifier-test swhid.hash-test swhid.git-test]]
+           (apply require nss)
+           (let [{:keys [fail error]} (apply t/run-tests nss)]
              (System/exit (if (pos? (+ fail error)) 1 0))))}}}
