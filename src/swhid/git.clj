@@ -7,7 +7,11 @@
 
   The snapshot covers all refs of the repository (including remotes),
   plus HEAD and other symbolic refs as aliases, matching what
-  `swh identify` (swh.model) computes for a local repository."
+  `swh identify` (swh.model) computes for a local repository. One
+  difference, by choice: a dangling symbolic ref other than HEAD (as
+  refs/remotes/origin/HEAD after the remote's default branch was
+  renamed and pruned) is left out, as `git for-each-ref` leaves it
+  out; swh identify includes it as an alias."
   (:require [clojure.java.io :as io]
             [clojure.java.shell :as sh]
             [clojure.string :as str]

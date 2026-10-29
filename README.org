@@ -106,7 +106,10 @@ SWHID the Git tree hash.
 ** Git repositories
 
 These functions shell out to the =git= binary and match what =swh
-identify= computes for a local repository.
+identify= computes for a local repository, but for one choice: a
+snapshot leaves out a dangling symbolic ref other than HEAD (as
+=refs/remotes/origin/HEAD= after the remote's default branch was renamed
+and pruned), where =swh identify= includes it as an alias.
 
 #+begin_src clojure
 (require '[swhid.git :as g])
