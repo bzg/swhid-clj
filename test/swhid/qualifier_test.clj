@@ -84,6 +84,10 @@
     (is (thrown? clojure.lang.ExceptionInfo (q/parse "origin"))))
   (testing "empty segment"
     (is (thrown? clojure.lang.ExceptionInfo (q/parse "origin=x;"))))
+  (testing "a blank origin is rejected, not kept with its visit"
+    (is (thrown? clojure.lang.ExceptionInfo (q/parse "origin=")))
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (q/parse "origin=%20;visit=swh:1:snp:94a9ed024d3859793618152ea559a168bbcbb5e2"))))
   (testing "visit must be a core SWHID"
     (is (thrown? clojure.lang.ExceptionInfo (q/parse "visit=not-a-swhid"))))
   (testing "range past Long/MAX_VALUE"
@@ -104,4 +108,6 @@
   (is (thrown? clojure.lang.ExceptionInfo (q/validate! {:lines [2 1]})))
   (is (thrown? clojure.lang.ExceptionInfo (q/validate! {:lines [1 2 3]})))
   (is (thrown? clojure.lang.ExceptionInfo (q/validate! {:visit "nope"})))
+  (is (thrown? clojure.lang.ExceptionInfo (q/validate! {:origin ""})))
+  (is (thrown? clojure.lang.ExceptionInfo (q/validate! {:origin " "})))
   (is (thrown? clojure.lang.ExceptionInfo (q/validate! {:unknown "x"}))))

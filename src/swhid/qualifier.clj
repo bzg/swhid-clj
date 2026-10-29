@@ -147,9 +147,17 @@
                     {:key :path :value v})))
   v)
 
+(defn- check-origin!
+  "Throw ex-info on a blank origin: it would say nothing, yet keep a
+  visit that an absent origin drops (see drop-orphans)."
+  [v]
+  (if (str/blank? v)
+    (throw (ex-info "Origin must not be blank" {:key :origin :value v}))
+    v))
+
 (defn- parse-value [k v]
   (case k
-    "origin" (percent-decode v)
+    "origin" (check-origin! (percent-decode v))
     "path" (check-path! (percent-decode v))
     ("visit" "anchor") (if (core-swhid? v)
                          v
@@ -209,7 +217,7 @@
   (doseq [[k v] qualifiers]
     (case k
       (:origin :path) (if (string? v)
-                        (when (= :path k) (check-path! v))
+                        (if (= :path k) (check-path! v) (check-origin! v))
                         (throw (ex-info "Qualifier value must be a string" {:key k :value v})))
       (:visit :anchor) (when-not (and (string? v) (core-swhid? v))
                          (throw (ex-info "Qualifier must be a core SWHID" {:key k :value v})))
