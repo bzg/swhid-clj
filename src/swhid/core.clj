@@ -33,6 +33,11 @@
 
 (def ^:private hash-re #"[0-9a-f]{40}")
 
+(defn ^:no-doc object-id?
+  "True when `x` is a string of 40 lowercase hex digits."
+  [x]
+  (and (string? x) (some? (re-matches hash-re x))))
+
 (defn- swhid-map
   "The SWHID map of validated parts, tagged with the :type metadata that
   selects its print-method."
@@ -74,7 +79,7 @@
   ([type hash qualifiers]
    (when-not (type->tag type)
      (throw (ex-info "Unknown object type" {:type type})))
-   (when-not (and (string? hash) (re-matches hash-re hash))
+   (when-not (object-id? hash)
      (throw (ex-info "Object id must be 40 lowercase hex digits" {:hash hash})))
    (when (some? qualifiers)
      (q/check-target! type (q/validate! qualifiers)))

@@ -18,8 +18,13 @@
             [swhid.core :as core]
             [swhid.hash :as h]))
 
+(defn- git-result
+  "The {:exit :out :err} of a git command in `repo`, whatever its exit code."
+  [repo & args]
+  (apply sh/sh "git" "-C" (str repo) args))
+
 (defn- git [repo & args]
-  (let [{:keys [exit out err]} (apply sh/sh "git" "-C" (str repo) args)]
+  (let [{:keys [exit out err]} (apply git-result repo args)]
     (when-not (zero? exit)
       (throw (ex-info "git command failed"
                       {:repo (str repo) :args (vec args) :err err})))
@@ -29,8 +34,7 @@
   "SWHIDs are SHA-1 based: refuse a SHA-256 repository up front rather
   than failing later on a 64-hex object id."
   [repo]
-  (let [{:keys [exit out]} (sh/sh "git" "-C" (str repo) "config" "--get"
-                                  "extensions.objectFormat")
+  (let [{:keys [exit out]} (git-result repo "config" "--get" "extensions.objectFormat")
         fmt (str/lower-case (str/trim out))]
     (when (and (zero? exit) (not= "sha1" fmt))
       (throw (ex-info "Unsupported object format: SWHIDs need a SHA-1 repository"
@@ -53,8 +57,8 @@
   file type found on disk."
   [repo]
   (parse-config-flags
-   (:out (sh/sh "git" "-C" (str repo) "config" "--bool"
-                "--get-regexp" "^core\\.(filemode|symlinks)$"))))
+   (:out (git-result repo "config" "--bool"
+                     "--get-regexp" "^core\\.(filemode|symlinks)$"))))
 
 (def ^:private git-type->swh
   {"blob" :content "tree" :directory "commit" :revision "tag" :release})
@@ -106,7 +110,7 @@
 (defn- head-branch
   "The HEAD branch of `repo`."
   [repo]
-  (let [{:keys [exit out]} (sh/sh "git" "-C" (str repo) "symbolic-ref" "-q" "HEAD")]
+  (let [{:keys [exit out]} (git-result repo "symbolic-ref" "-q" "HEAD")]
     (if (zero? exit)
       ;; On an unborn HEAD (fresh `git init`), this yields an alias to a
       ;; branch absent from the snapshot; SWH snapshots do contain such

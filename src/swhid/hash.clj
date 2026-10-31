@@ -27,12 +27,20 @@
         (.append sb (.charAt hex-digits (bit-and u 0xf)))))
     (str sb)))
 
+(defn- digest->swhid
+  "SWHID map of `type` for the object digest `digest`."
+  [type ^bytes digest]
+  (core/make type (hex digest)))
+
 (defn- object-header ^bytes [obj-type len]
   (.getBytes (str obj-type " " len "\u0000") "UTF-8"))
 
-(defn- blob-digest ^bytes [^bytes data]
+(defn- object-digest
+  "Git digest of the object of type `obj-type` (\"blob\", \"tree\", …)
+  holding `data`."
+  ^bytes [obj-type ^bytes data]
   (let [md (MessageDigest/getInstance "SHA-1")]
-    (.update md (object-header "blob" (alength data)))
+    (.update md (object-header obj-type (alength data)))
     (.update md data)
     (.digest md)))
 
@@ -57,7 +65,7 @@
     (.digest md)))
 
 (defn- symlink-blob-digest ^bytes [^File f]
-  (blob-digest (.getBytes (str (Files/readSymbolicLink (.toPath f))) "UTF-8")))
+  (object-digest "blob" (.getBytes (str (Files/readSymbolicLink (.toPath f))) "UTF-8")))
 
 ;; Entries are sorted as Git sorts trees: byte order of the UTF-8 name,
 ;; with "/" appended to directory names for comparison only.
@@ -95,11 +103,7 @@
       (.write payload ^bytes name)
       (.write payload 0)
       (.write payload ^bytes digest))
-    (let [bs (.toByteArray payload)
-          md (MessageDigest/getInstance "SHA-1")]
-      (.update md (object-header "tree" (alength bs)))
-      (.update md bs)
-      (.digest md))))
+    (object-digest "tree" (.toByteArray payload))))
 
 (defn ^:no-doc executable?
   "True when the owner execute bit of `f` is set, the bit Git reads to
@@ -148,8 +152,8 @@
    (when record?
      (into {}
            (mapcat (fn [{:keys [rel mode digest swhids]}]
-                     (cons [rel (core/make (if (= "40000" mode) :directory (mode->type mode))
-                                           (hex digest))]
+                     (cons [rel (digest->swhid (if (= "40000" mode) :directory (mode->type mode))
+                                               digest)]
                            swhids)))
            children))])
 
@@ -194,6 +198,20 @@
                   (Integer/parseInt (subs s (* 2 i) (+ (* 2 i) 2)) 16))))
     out))
 
+(defn- target-bytes
+  "Bytes the snapshot manifest holds for the target of a branch."
+  ^bytes [{:keys [target-type target]}]
+  (case target-type
+    :dangling (byte-array 0)
+    :alias (if (string? target)
+             (.getBytes ^String target "UTF-8")
+             (throw (ex-info "Alias target must be a branch name" {:target target})))
+    (:content :directory :revision :release :snapshot)
+    (if (core/object-id? target)
+      (hex->bytes target)
+      (throw (ex-info "Target must be 40 hex digits" {:target target})))
+    (throw (ex-info "Unknown target type" {:target-type target-type}))))
+
 (defn snapshot-swhid
   "SWHID map of a snapshot, from a branches map: branch name (string) ->
   {:target-type <kw> :target <value>} where :target-type is :content,
@@ -201,41 +219,24 @@
   :alias (:target is a branch name) or :dangling (:target is nil)."
   [branches]
   (let [payload (ByteArrayOutputStream.)]
-    (doseq [[name-bytes {:keys [target-type target]}]
+    (doseq [[name-bytes {:keys [target-type] :as branch}]
             (->> branches
                  (map (fn [[k v]] [(.getBytes ^String k "UTF-8") v]))
                  (sort-by first compare-unsigned))]
-      (let [target-bytes (case target-type
-                           :dangling (byte-array 0)
-                           :alias (if (string? target)
-                                    (.getBytes ^String target "UTF-8")
-                                    (throw (ex-info "Alias target must be a branch name"
-                                                    {:target target})))
-                           (:content :directory :revision :release :snapshot)
-                           (if (and (string? target) (re-matches #"[0-9a-f]{40}" target))
-                             (hex->bytes target)
-                             (throw (ex-info "Target must be 40 hex digits"
-                                             {:target target})))
-                           (throw (ex-info "Unknown target type"
-                                           {:target-type target-type})))]
+      (let [target (target-bytes branch)]
         (.write payload (.getBytes (name target-type) "UTF-8"))
         (.write payload 32)
         (.write payload ^bytes name-bytes)
         (.write payload 0)
-        (.write payload (.getBytes (str (alength target-bytes) ":") "UTF-8"))
-        (.write payload target-bytes)))
-    (let [bs (.toByteArray payload)
-          md (MessageDigest/getInstance "SHA-1")]
-      (.update md (object-header "snapshot" (alength bs)))
-      (.update md bs)
-      (core/make :snapshot (hex (.digest md))))))
+        (.write payload (.getBytes (str (alength target) ":") "UTF-8"))
+        (.write payload target)))
+    (digest->swhid :snapshot (object-digest "snapshot" (.toByteArray payload)))))
 
 (defn content-swhid
   "SWHID map of raw content: a byte array, or a string hashed as UTF-8."
   [data]
-  (core/make :content
-             (hex (blob-digest
-                   (if (string? data) (.getBytes ^String data "UTF-8") data)))))
+  (digest->swhid :content
+                 (object-digest "blob" (if (string? data) (.getBytes ^String data "UTF-8") data))))
 
 (defn path-swhid
   "SWHID map of a local artifact. A regular file or a symbolic link yields
@@ -250,9 +251,9 @@
   ([path {:keys [exclude]}]
    (let [f (io/file path)]
      (case (file-kind f)
-       :symlink (core/make :content (hex (symlink-blob-digest f)))
-       :directory (core/make :directory (hex (first (walk-tree f exclude false ""))))
-       :file (core/make :content (hex (file-blob-digest f)))
+       :symlink (digest->swhid :content (symlink-blob-digest f))
+       :directory (digest->swhid :directory (first (walk-tree f exclude false "")))
+       :file (digest->swhid :content (file-blob-digest f))
        (throw (ex-info "No such file or unsupported file type"
                        {:path (str f)}))))))
 
@@ -265,7 +266,7 @@
   ([path] (tree-swhids path nil))
   ([path {:keys [exclude]}]
    (let [[digest swhids] (walk-tree (io/file path) exclude true "")]
-     (assoc swhids "." (core/make :directory (hex digest))))))
+     (assoc swhids "." (digest->swhid :directory digest)))))
 
 (defn- nest
   "Nested map of `entries` ({relpath entry}): a directory is a map of
@@ -312,7 +313,7 @@
   for every leaf and every intermediate directory, the root under \".\"."
   [entries]
   (doseq [[path {:keys [mode hash]}] entries]
-    (when-not (and (mode->type mode) (string? hash) (re-matches #"[0-9a-f]{40}" hash))
+    (when-not (and (mode->type mode) (core/object-id? hash))
       (throw (ex-info "Invalid entry" {:path path :mode mode :hash hash}))))
   (let [[digest swhids] (nested-tree (nest entries) "")]
-    (assoc swhids "." (core/make :directory (hex digest)))))
+    (assoc swhids "." (digest->swhid :directory digest))))
