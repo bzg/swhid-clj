@@ -13,7 +13,7 @@ It runs on the JVM (Clojure >= 1.11) and on [[https://babashka.org][Babashka]].
 * Install
 
 #+begin_src clojure
-{:deps {io.github.bzg/swhid {:mvn/version "0.1.0"}}}
+{:deps {io.github.bzg/swhid {:mvn/version "0.2.1"}}}
 #+end_src
 
 * SWHIDs as data
